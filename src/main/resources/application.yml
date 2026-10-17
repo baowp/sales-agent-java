@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: sales-agent
+  # Read the same KEY=value .env file as the Node.js version (LLM_PROVIDER, GROQ_API_KEY, ...).
+  config:
+    import: optional:file:.env[.properties]
+  main:
+    banner-mode: off
+  threads:
+    virtual:
+      enabled: true          # each request blocks on slow LLM calls; virtual threads make that cheap
+  mvc:
+    async:
+      request-timeout: 10m   # /api/ask streams for as long as the agent loop runs
+
+server:
+  address: 127.0.0.1         # this computer only
+  port: ${PORT:3002}         # 3001 is the Node.js version, so both can run side by side
+
+logging:
+  level:
+    root: warn
+
+sales:
+  max-steps: ${MAX_STEPS:12}
+  request-timeout-seconds: ${REQUEST_TIMEOUT_SECONDS:120}
+  sockspal-api: ${SOCKSPAL_API:https://api.sockspal.com/api/v1}
+  catalog-cache-seconds: ${CATALOG_CACHE_SECONDS:60}
+  rfq-mode: ${RFQ_MODE:draft}
+  rfq-dir: rfqs

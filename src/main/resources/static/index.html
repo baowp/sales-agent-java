@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SocksPal Sales Agent (Java)</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1f2328; --muted: #6b7280; --border: #e5e7eb;
+    --accent: #2563eb; --accent-soft: #e8efff; --user: #1f2328; --user-text: #ffffff;
+    --danger: #b42318; --danger-soft: #fdecea; --ok: #067647; --ok-soft: #e6f4ec; --code: #f1f3f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141518; --panel: #1c1d21; --text: #e6e6e6; --muted: #9aa0a6; --border: #2c2e33;
+      --accent: #6b9bff; --accent-soft: #23304d; --user: #34363c; --user-text: #f2f2f2;
+      --danger: #ff8a80; --danger-soft: #3a1f1d; --ok: #6fd3a0; --ok-soft: #173326; --code: #25272c;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: grid; grid-template-rows: auto 1fr; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  .chip {
+    font-size: 12px; color: var(--muted); border: 1px solid var(--border);
+    border-radius: 999px; padding: 2px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  header .spacer { flex: 1; }
+  button {
+    font: inherit; font-size: 13px; color: var(--text); background: var(--panel);
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--muted); }
+  button:disabled { opacity: .5; cursor: default; }
+  #toggleCatalog { display: none; }
+
+  .layout { display: grid; grid-template-columns: 300px 1fr; min-height: 0; }
+  aside {
+    border-right: 1px solid var(--border); background: var(--panel);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  aside .head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px 6px; }
+  aside .head span { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  aside .meta { font-size: 12px; color: var(--muted); padding: 0 14px 8px; }
+  #productList { list-style: none; margin: 0; padding: 0 6px 12px; overflow: auto; }
+  #productList li { padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  #productList li:hover { background: var(--accent-soft); }
+  #productList li strong { display: block; font-weight: 500; line-height: 1.35; }
+  #productList li small { display: block; color: var(--muted); margin-top: 2px; }
+  #productList .note { color: var(--muted); cursor: default; font-style: italic; }
+  #productList .note:hover { background: none; }
+  #productList .note.err { color: var(--danger); font-style: normal; }
+
+  main { display: grid; grid-template-rows: 1fr auto; min-height: 0; min-width: 0; }
+  #messages { overflow-y: auto; padding: 24px 16px; }
+  .inner { max-width: 760px; margin: 0 auto; }
+  .msg { margin: 0 0 18px; display: flex; }
+  .msg.user { justify-content: flex-end; }
+  .bubble { max-width: 100%; overflow-wrap: anywhere; }
+  .user .bubble {
+    background: var(--user); color: var(--user-text); padding: 9px 14px;
+    border-radius: 14px 14px 4px 14px; max-width: 80%; white-space: pre-wrap;
+  }
+  .assistant .bubble p { margin: 0 0 10px; }
+  .assistant .bubble ul, .assistant .bubble ol { margin: 0 0 10px; padding-left: 22px; }
+  .assistant .bubble code { background: var(--code); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+  .assistant .bubble pre { background: var(--code); padding: 10px; border-radius: 8px; overflow-x: auto; }
+  .assistant .bubble pre code { background: none; padding: 0; }
+  .assistant .bubble a { color: var(--accent); }
+  .table-wrap { overflow-x: auto; margin: 0 0 10px; }
+  .assistant .bubble table { border-collapse: collapse; font-size: 13.5px; }
+  .assistant .bubble th, .assistant .bubble td { border: 1px solid var(--border); padding: 5px 9px; text-align: left; vertical-align: top; }
+  .assistant .bubble th { background: var(--code); font-weight: 600; }
+  .steps { font-size: 12.5px; color: var(--muted); margin: 0 0 8px; }
+  .steps div { padding: 1px 0; }
+  .steps .retry, .steps .fail { color: var(--danger); }
+  .steps .rfq { color: var(--ok); background: var(--ok-soft); border-radius: 6px; padding: 2px 8px; display: inline-block; }
+  .thinking::after { content: "…"; animation: blink 1.2s infinite; }
+  @keyframes blink { 50% { opacity: .2; } }
+  .error { background: var(--danger-soft); color: var(--danger); padding: 9px 12px; border-radius: 8px; font-size: 14px; }
+  .empty { color: var(--muted); text-align: center; margin-top: 12vh; }
+  .empty h2 { color: var(--text); font-weight: 600; font-size: 20px; margin: 0 0 6px; }
+  .suggest { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 16px; }
+
+  form { padding: 12px 16px 16px; border-top: 1px solid var(--border); background: var(--bg); }
+  form .inner { display: flex; gap: 8px; align-items: flex-end; }
+  textarea {
+    flex: 1; resize: none; font: inherit; color: var(--text); background: var(--panel);
+    border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; max-height: 180px; min-height: 44px;
+  }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  #send { background: var(--accent); color: #fff; border-color: var(--accent); height: 44px; padding: 0 18px; border-radius: 12px; }
+
+  @media (max-width: 800px) {
+    .layout { grid-template-columns: 1fr; position: relative; }
+    #toggleCatalog { display: inline-block; }
+    aside { position: absolute; inset: 0 auto 0 0; width: min(300px, 85vw); z-index: 2; display: none; box-shadow: 0 0 24px rgba(0,0,0,.2); }
+    aside.open { display: flex; }
+    header { gap: 8px; }
+    header h1 { white-space: nowrap; font-size: 15px; }
+    header .chip { max-width: 30vw; }
+    #rfqMode { display: none; }
+    #newChat { white-space: nowrap; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <button id="toggleCatalog" type="button">Products</button>
+  <h1>SocksPal Sales Agent <small style="font-weight:400;color:var(--muted)">Java · Spring AI</small></h1>
+  <span class="chip" id="model">loading…</span>
+  <span class="chip" id="rfqMode"></span>
+  <span class="spacer"></span>
+  <button id="newChat" type="button">New chat</button>
+</header>
+
+<div class="layout">
+  <aside id="catalog">
+    <div class="head"><span>Live catalog</span><button id="reload" type="button" title="Fetch stock and prices again">Refresh</button></div>
+    <div class="meta" id="meta"></div>
+    <ul id="productList"></ul>
+  </aside>
+
+  <main>
+    <div id="messages"><div class="inner" id="thread"></div></div>
+    <form id="form">
+      <div class="inner">
+        <textarea id="input" rows="1" placeholder="Message as a customer…" autofocus></textarea>
+        <button id="send" type="submit">Send</button>
+      </div>
+    </form>
+  </main>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const thread = $('thread'), input = $('input'), sendBtn = $('send');
+let sessionId = null, busy = false;
+
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// Minimal markdown: code, bold, italics, links, lists, tables, paragraphs.
+function render(md) {
+  const blocks = [];
+  let html = esc(md).replace(/```[\w-]*\n?([\s\S]*?)```/g, (_, code) => {
+    blocks.push(`<pre><code>${code}</code></pre>`);
+    return `\u0000${blocks.length - 1}\u0000`;
+  });
+  html = html
+    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+[^\s<).,;:!?])/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+
+  const out = [];
+  let list = null, table = null;
+  const cells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+  const flushTable = () => {
+    if (!table) return;
+    const [head, ...body] = table;
+    out.push(`<div class="table-wrap"><table><thead><tr>${head.map((c) => `<th>${c}</th>`).join('')}</tr></thead><tbody>${
+      body.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
+    table = null;
+  };
+  for (const line of html.split('\n')) {
+    if (/^\s*\|.*\|\s*$/.test(line)) {
+      if (list) { out.push(`</${list}>`); list = null; }
+      if (/^\s*\|[\s:|-]+\|\s*$/.test(line)) continue; // header separator row
+      (table ||= []).push(cells(line));
+      continue;
+    }
+    if (!line.trim() && table) continue; // models often put blank lines between table rows
+    flushTable();
+    const m = line.match(/^\s*(?:([-*•])|(\d+)[.)])\s+(.*)$/);
+    if (m) {
+      const tag = m[1] ? 'ul' : 'ol';
+      if (list !== tag) { if (list) out.push(`</${list}>`); out.push(`<${tag}>`); list = tag; }
+      out.push(`<li>${m[3]}</li>`);
+      continue;
+    }
+    if (list) { out.push(`</${list}>`); list = null; }
+    if (/^\s*(-{3,}|\*{3,})\s*$/.test(line)) continue;
+    if (line.trim()) out.push(`<p>${line.replace(/^#{1,6}\s*/, '')}</p>`);
+  }
+  if (list) out.push(`</${list}>`);
+  flushTable();
+  return out.join('').replace(/\u0000(\d+)\u0000/g, (_, i) => blocks[i]);
+}
+
+function addMessage(role, html) {
+  $('emptyState')?.remove();
+  const el = document.createElement('div');
+  el.className = `msg ${role}`;
+  el.innerHTML = `<div class="bubble">${html}</div>`;
+  thread.appendChild(el);
+  $('messages').scrollTop = $('messages').scrollHeight;
+  return el.firstChild;
+}
+
+function showEmpty() {
+  const examples = [
+    'I need 500 pairs of black soccer socks. How much, and how long?',
+    'What grip socks do you have for a Pilates studio?',
+    'Can I return wholesale socks that don’t sell?',
+    '我们想订1000双男士袜子，带logo，多少钱？',
+  ];
+  thread.innerHTML = `<div class="empty" id="emptyState"><h2>Talk to the SocksPal sales agent</h2>
+    Prices and stock come live from sockspal.com. Quote requests are handed to the sales team.
+    <div class="suggest">${examples.map((q) => `<button type="button" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</div></div>`;
+}
+
+const describe = (e) => {
+  const a = e.args || {};
+  if (e.name === 'list_products') return a.category ? `Listed ${esc(a.category)} products` : 'Listed products';
+  if (e.name === 'get_product') return `Looked up ${esc(a.product || '')}`;
+  if (e.name === 'calculate_quote') return `Priced ${esc(a.quantityPairs ?? "?")} pairs of ${esc(a.product || '')}${a.color ? ` (${esc(a.color)})` : ''}`;
+  if (e.name === 'get_policy') return `Read policy: ${esc((a.topic || '').replace(/_/g, ' ').toLowerCase())}`;
+  if (e.name === 'create_rfq') return 'Sending quote request…';
+  return esc(e.name);
+};
+
+async function send(q) {
+  if (busy || !q.trim()) return;
+  busy = true; sendBtn.disabled = true;
+  addMessage('user', esc(q));
+  const bubble = addMessage('assistant', '<div class="steps"><div class="thinking">Thinking</div></div>');
+  const steps = bubble.querySelector('.steps');
+  const status = steps.firstChild;
+  const step = (html) => status.insertAdjacentHTML('beforebegin', html);
+
+  try {
+    const res = await fetch('/api/ask', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: q, sessionId }),
+    });
+    if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += value;
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const e = JSON.parse(buf.slice(0, nl));
+        buf = buf.slice(nl + 1);
+        if (e.type === 'session') sessionId = e.sessionId;
+        else if (e.type === 'tool') step(`<div>${describe(e)}</div>`);
+        else if (e.type === 'tool_error') step(`<div class="fail">${esc(e.name)} failed: ${esc(e.message)}</div>`);
+        else if (e.type === 'rfq') { step(`<div class="rfq">RFQ ${esc(e.id)} · ${esc(e.status.replace(/_/g, ' '))}</div>`); loadInfo(); }
+        else if (e.type === 'retry') step(e.status === 'timeout'
+          ? '<div class="retry">Model did not respond in time, retrying</div>'
+          : `<div class="retry">Rate limited (${e.status}), retrying in ${e.seconds}s</div>`);
+        else if (e.type === 'answer') { status.remove(); bubble.insertAdjacentHTML('beforeend', render(e.text)); }
+        else if (e.type === 'error') { status.remove(); bubble.insertAdjacentHTML('beforeend', `<div class="error">${esc(e.message)}</div>`); }
+        $('messages').scrollTop = $('messages').scrollHeight;
+      }
+    }
+  } catch (err) {
+    status.remove();
+    bubble.insertAdjacentHTML('beforeend', `<div class="error">${esc(err.message)}</div>`);
+  } finally {
+    if (!steps.children.length) steps.remove();
+    busy = false; sendBtn.disabled = false; input.focus();
+  }
+}
+
+function renderInfo(info) {
+  $('model').textContent = `${info.provider} · ${info.model}`;
+  $('model').title = `${info.provider} · ${info.model}`;
+  $('rfqMode').textContent = info.rfqMode === 'submit' ? 'RFQs go to SocksPal' : `RFQ drafts: ${info.rfqs}`;
+  $('rfqMode').title = info.rfqMode === 'submit' ? 'RFQ_MODE=submit: quote requests are sent to SocksPal' : 'RFQ_MODE=draft: quote requests are saved in ./rfqs';
+  $('meta').textContent = info.fetchedAt ? `${info.products.length} products · updated ${new Date(info.fetchedAt).toLocaleTimeString()}` : '';
+  $('productList').innerHTML = info.catalogError
+    ? `<li class="note err">${esc(info.catalogError)}</li>`
+    : info.products.map((p) => `<li data-q="${esc(`Tell me about ${p.name}: stock and wholesale prices.`)}">
+        <strong>${esc(p.name)}</strong>
+        <small>${esc(p.wholesale)}</small>
+        <small>${esc(p.category)} · retail ${esc(p.retailPrice)} · ${p.readyStockPairs} pairs ready</small></li>`).join('')
+      || '<li class="note">No products listed</li>';
+}
+
+const loadInfo = () => fetch('/api/info').then((r) => r.json()).then(renderInfo);
+
+document.addEventListener('click', (ev) => {
+  const q = ev.target.closest('[data-q]');
+  if (q) { $('catalog').classList.remove('open'); send(q.dataset.q); }
+});
+
+$('form').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  const q = input.value;
+  input.value = ''; input.style.height = '';
+  send(q);
+});
+input.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); $('form').requestSubmit(); }
+});
+input.addEventListener('input', () => { input.style.height = ''; input.style.height = input.scrollHeight + 'px'; });
+$('toggleCatalog').onclick = () => $('catalog').classList.toggle('open');
+$('newChat').onclick = async () => {
+  if (busy) return;
+  if (sessionId) await fetch('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId }) });
+  sessionId = null;
+  showEmpty();
+};
+$('reload').onclick = async () => {
+  $('reload').disabled = true;
+  try { renderInfo(await (await fetch('/api/reload', { method: 'POST' })).json()); }
+  finally { $('reload').disabled = false; }
+};
+
+loadInfo();
+showEmpty();
+</script>
+</body>
+</html>
