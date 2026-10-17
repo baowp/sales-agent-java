@@ -10,7 +10,6 @@ import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.execution.ToolExecutionException;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.core.env.Environment;
 
 import com.sockspal.agent.agent.SalesTools;
 
@@ -21,8 +20,8 @@ public class AiConfig {
     public static final String TOOL_ERROR_PREFIX = "ERROR: ";
 
     @Bean
-    LlmProvider llmProvider(Environment env) {
-        return LlmProvider.resolve(env);
+    LlmProvider llmProvider(LlmProperties llm) {
+        return llm.resolve();
     }
 
     /**
@@ -32,12 +31,12 @@ public class AiConfig {
      * the loop lives in {@code SalesAgent}.
      */
     @Bean
-    ChatModel chatModel(LlmProvider provider, SalesTools tools, AgentProperties props) {
+    ChatModel chatModel(LlmProvider provider, LlmProperties llm, SalesTools tools, AgentProperties props) {
         OpenAiChatOptions options = OpenAiChatOptions.builder()
                 .baseUrl(provider.baseUrl())
                 .apiKey(provider.apiKey().isBlank() ? "none" : provider.apiKey()) // local servers ignore the key
                 .model(provider.model())
-                .temperature(0.2)
+                .temperature(llm.temperature())
                 .timeout(Duration.ofSeconds(props.requestTimeoutSeconds()))
                 .maxRetries(0) // SalesAgent retries itself so it can show "retrying" in the UI
                 .toolCallbacks(ToolCallbacks.from(tools))

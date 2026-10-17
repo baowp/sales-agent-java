@@ -5,9 +5,28 @@ The Java version of [`../sales-agent`](../sales-agent): the same features, promp
 ## Setup
 
 ```bash
-copy .env.example .env      # then paste one provider's API key (same keys as the Node.js version)
+copy .env.example .env      # then paste your provider's API key
 mvn package                 # builds target/sales-agent-1.0.0.jar and runs the tests
 ```
+
+## Configuration
+
+All settings live in [`application.yml`](src/main/resources/application.yml), bound to typed records:
+
+| Section | Record | What it holds |
+|---|---|---|
+| `llm.*` | `config/LlmProperties` | Provider (default `bailian`), the nine presets (base URL, model), overrides, temperature |
+| `sales.*` | `config/AgentProperties` | Step limit, timeouts, SocksPal API URL, catalog cache, RFQ mode and folder |
+
+**API keys are not in `application.yml`**, because it's committed to git and packed into the jar. Each preset references its key by name (`api-key: ${DASHSCOPE_API_KEY:}`), and the value comes from `.env` (gitignored) on your machine, or from a real environment variable or secrets manager on a server.
+
+Ways to override a setting, from highest priority:
+1. Command line: `java -jar target/sales-agent-1.0.0.jar --llm.provider=groq`
+2. Environment variable: `LLM_PROVIDER=groq` (Spring maps it to `llm.provider`)
+3. `.env`: `LLM_PROVIDER=groq` (works through the `${LLM_PROVIDER:bailian}` placeholder)
+4. The default in `application.yml`
+
+A wrong setting stops startup with a clear message, such as `Missing API key for "nvidia": add it to .env`. IDEs autocomplete `llm.*` and `sales.*` in `application.yml` from the metadata generated at build time.
 
 ## Use
 
@@ -46,7 +65,7 @@ Because the loop is ours, it can:
 
 | Node.js (`../sales-agent`) | Java | What it does |
 |---|---|---|
-| `providers.js` | `config/LlmProvider.java` | Provider presets, same env variables |
+| `providers.js` | `application.yml` (`llm.*`) + `config/LlmProperties.java` | Provider presets, same key names in `.env` |
 | `core.js` `chat()` | `config/AiConfig.java` (`OpenAiChatModel`) + `SalesAgent.callModel()` | One LLM call, with retries |
 | `core.js` `TOOLS` + `runTool()` | `agent/SalesTools.java` (`@Tool` methods) | Tool definitions and their code |
 | `core.js` `ask()` | `agent/SalesAgent.java` | The loop |
@@ -68,7 +87,8 @@ How a tool name reaches code: `AiConfig` registers `ToolCallbacks.from(salesTool
 
 ## Tests
 
-`mvn test` runs 16 tests without any network or API key:
+`mvn test` runs 21 tests without any network or API key:
+- `LlmPropertiesTest`: binds the real `application.yml` with test key values: defaults, overrides, the custom provider, and the startup error messages.
 - `CatalogTest`: tier pricing, MOQ, price breaks, colour stock, product matching, HTML attribute tables, API-down error. Uses `src/test/resources/fixtures/wholesale-products.json`, a snapshot of the live catalog, so live prices can differ.
 - `SalesToolsTest`: the generated tool schemas, plain-text policies, and RFQ confirmation, checks and saved payload.
 - `SalesAgentLoopTest`: the real loop, `ToolCallingManager` and tools driven by a scripted model. Covers tool results fed back, an invented tool name, a failing tool, and the step limit.
