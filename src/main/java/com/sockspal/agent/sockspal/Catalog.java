@@ -13,6 +13,8 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -29,6 +31,7 @@ import com.sockspal.agent.sockspal.Product.WholesaleProfile;
 @Component
 public class Catalog {
 
+    private static final Logger log = LoggerFactory.getLogger(Catalog.class);
     public static final String SITE = "https://www.sockspal.com";
 
     private final ProductSource source;
@@ -70,8 +73,10 @@ public class Catalog {
     public synchronized Catalog load(boolean force) {
         Instant at = fetchedAt;
         if (!force && !products.isEmpty() && at != null && at.plus(cacheFor).isAfter(Instant.now())) return this;
+        long started = System.nanoTime();
         products = source.wholesaleProducts();
         fetchedAt = Instant.now();
+        log.info("Catalog loaded: {} product(s) in {} ms", products.size(), (System.nanoTime() - started) / 1_000_000);
         return this;
     }
 

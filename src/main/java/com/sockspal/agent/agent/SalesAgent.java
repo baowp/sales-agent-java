@@ -12,6 +12,8 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.AssistantMessage.ToolCall;
 import org.springframework.ai.chat.messages.Message;
@@ -19,6 +21,7 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.ToolResponseMessage.ToolResponse;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.ChatOptions;
@@ -52,7 +55,9 @@ import tools.jackson.databind.node.StringNode;
 @Service
 public class SalesAgent {
 
+    private static final Logger log = LoggerFactory.getLogger(SalesAgent.class);
     private static final int MAX_RETRIES = 4;
+    private static final int PREVIEW_CHARS = 300;
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final ChatModel chatModel;
@@ -82,39 +87,52 @@ public class SalesAgent {
      * and reports progress through {@code events}.
      */
     public String ask(List<Message> history, String question, Consumer<AgentEvent> events) {
+        long started = System.nanoTime();
+        log.info("Question: {}", preview(question));
         history.add(new UserMessage(question));
         // Model name, temperature and the five tool definitions (set up in AiConfig).
         ChatOptions options = chatModel.getDefaultOptions();
 
-        for (int step = 0; step < maxSteps; step++) {
+        for (int step = 1; step <= maxSteps; step++) {
             // 1. One round trip: the whole conversation plus the tool list.
             Prompt prompt = new Prompt(List.copyOf(history), options);
+            log.info("Step {}/{}: calling {} with {} messages", step, maxSteps, provider.model(), history.size());
+            long callStarted = System.nanoTime();
             ChatResponse response = callModel(prompt, events);
             AssistantMessage reply = response.getResult().getOutput();
+            log.info("Step {}: model replied in {} ms ({})", step, millisSince(callStarted), usage(response));
 
             // 2. No tool calls: the reply is the answer to the customer.
             if (!response.hasToolCalls()) {
                 history.add(reply);
-                return textOrDefault(reply, "(no answer)");
+                String text = textOrDefault(reply, "(no answer)");
+                log.info("Step {}: final answer after {} ms: {}", step, millisSince(started), preview(text));
+                return text;
             }
 
             // 3. Run the tools the model asked for. Spring AI parses the JSON arguments and calls the
             //    matching @Tool method in SalesTools; this code decides when, and sees every call.
             for (ToolCall call : reply.getToolCalls()) {
+                log.info("Step {}: tool call {}({})", step, call.name(), call.arguments());
                 events.accept(new AgentEvent.ToolCall(call.name(), parseArgs(call.arguments())));
             }
+            long toolsStarted = System.nanoTime();
             List<Message> next = runTools(prompt, response, reply);
+            log.info("Step {}: {} tool call(s) finished in {} ms", step, reply.getToolCalls().size(),
+                    millisSince(toolsStarted));
 
             // 4. The new history is the prompt + the model's tool request + the tool results.
             //    Loop so the model can read the results and answer or ask for more.
             history.clear();
             history.addAll(next);
-            report((ToolResponseMessage) next.getLast(), events);
+            report(step, (ToolResponseMessage) next.getLast(), events);
         }
 
+        log.warn("Step limit {} reached, asking the model to answer with what it has", maxSteps);
         history.add(new UserMessage("Step limit reached. Reply to the customer now with what you have."));
         AssistantMessage last = callModel(new Prompt(List.copyOf(history), options), events).getResult().getOutput();
         String text = textOrDefault(last, "(no answer within step limit)");
+        log.info("Final answer after {} ms: {}", millisSince(started), preview(text));
         // Store text only: a tool request without its results would break the next turn.
         history.add(AssistantMessage.builder().content(text).build());
         return text;
@@ -125,6 +143,7 @@ public class SalesAgent {
         List<String> unknown = reply.getToolCalls().stream()
                 .map(ToolCall::name).filter(name -> !toolNames.contains(name)).toList();
         if (!unknown.isEmpty()) {
+            log.warn("Model asked for unknown tool(s) {}; none were run", unknown);
             return failAll(prompt, reply, "Unknown tool %s. Available tools: %s. No tools were run; call them again"
                     .formatted(String.join(", ", unknown), String.join(", ", toolNames)));
         }
@@ -133,6 +152,7 @@ public class SalesAgent {
         } catch (RuntimeException e) {
             // e.g. arguments that aren't valid JSON. Exceptions inside a tool are handled by
             // AiConfig.toolErrorMessage and come back as normal tool results.
+            log.warn("Tool calls could not be run: {}", e.getMessage());
             return failAll(prompt, reply, e.getMessage());
         }
     }
@@ -148,13 +168,18 @@ public class SalesAgent {
     }
 
     /** Turns tool results into UI events: failures, and the RFQ id once one is saved. */
-    private static void report(ToolResponseMessage results, Consumer<AgentEvent> events) {
+    private static void report(int step, ToolResponseMessage results, Consumer<AgentEvent> events) {
         for (ToolResponse r : results.getResponses()) {
             String data = r.responseData();
+            log.debug("Step {}: tool result {} (full): {}", step, r.name(), data);
             if (data.startsWith(AiConfig.TOOL_ERROR_PREFIX)) {
                 String message = data.substring(AiConfig.TOOL_ERROR_PREFIX.length()).replaceFirst("\\. Do not guess this data\\.$", "");
+                log.warn("Step {}: tool {} failed: {}", step, r.name(), message);
                 events.accept(new AgentEvent.ToolError(r.name(), message));
-            } else if (r.name().equals("create_rfq")) {
+                continue;
+            }
+            log.info("Step {}: tool result {} ({} chars): {}", step, r.name(), data.length(), preview(data));
+            if (r.name().equals("create_rfq")) {
                 JsonNode json = parseArgs(data);
                 if (json.hasNonNull("id") && json.hasNonNull("status")) {
                     events.accept(new AgentEvent.RfqSaved(json.get("id").asString(), json.get("status").asString()));
@@ -173,11 +198,14 @@ public class SalesAgent {
                 boolean retryable = http != null && (http.statusCode() == 429 || http.statusCode() >= 500);
                 if (retryable && attempt < MAX_RETRIES) {
                     long waitMs = Math.min(retryAfterMs(http).orElse(2000L << attempt), 60_000L);
+                    log.warn("{} returned HTTP {}, retry {}/{} in {} ms", provider.name(), http.statusCode(),
+                            attempt + 1, MAX_RETRIES, waitMs);
                     events.accept(new AgentEvent.Retry(String.valueOf(http.statusCode()), Math.round(waitMs / 1000.0)));
                     sleep(waitMs);
                     continue;
                 }
                 if (http == null && isTimeout(e) && attempt < MAX_RETRIES) {
+                    log.warn("{} timed out, retry {}/{}", provider.name(), attempt + 1, MAX_RETRIES);
                     events.accept(new AgentEvent.Retry("timeout", 0));
                     continue;
                 }
@@ -219,6 +247,23 @@ public class SalesAgent {
         } catch (RuntimeException e) {
             return StringNode.valueOf(json);
         }
+    }
+
+    /** One line, cut to PREVIEW_CHARS. Full tool results are logged at DEBUG. */
+    private static String preview(String text) {
+        String line = text.replaceAll("\\s+", " ").trim();
+        return line.length() <= PREVIEW_CHARS ? line
+                : line.substring(0, PREVIEW_CHARS) + "... (" + line.length() + " chars)";
+    }
+
+    private static String usage(ChatResponse response) {
+        Usage usage = response.getMetadata().getUsage();
+        return usage == null ? "no token usage"
+                : "tokens in=%s out=%s".formatted(usage.getPromptTokens(), usage.getCompletionTokens());
+    }
+
+    private static long millisSince(long nanoTime) {
+        return (System.nanoTime() - nanoTime) / 1_000_000;
     }
 
     private static String textOrDefault(AssistantMessage message, String fallback) {

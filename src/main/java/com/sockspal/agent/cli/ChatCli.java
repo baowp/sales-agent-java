@@ -13,6 +13,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -38,6 +40,8 @@ import com.sockspal.agent.sockspal.Catalog;
 @Component
 @ConditionalOnProperty(name = "sales.cli", havingValue = "true")
 public class ChatCli implements ApplicationRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(ChatCli.class);
 
     private final SalesAgent agent;
     private final Catalog catalog;
@@ -117,6 +121,7 @@ public class ChatCli implements ApplicationRunner {
                 try {
                     out.printf("%n%s%n%n", agent.ask(history, q, onEvent));
                 } catch (RuntimeException e) {
+                    log.error("Question failed: {}", e.getMessage(), e);
                     err.printf("Error: %s%n%n", e.getMessage());
                     history.subList(mark, history.size()).clear(); // drop the failed turn so the next question starts clean
                 }

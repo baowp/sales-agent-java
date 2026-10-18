@@ -23,10 +23,12 @@ public class SalesAgentApplication {
 
     public static void main(String[] args) {
         boolean cli = Arrays.asList(args).contains("--cli");
-        var context = new SpringApplicationBuilder(SalesAgentApplication.class)
+        var app = new SpringApplicationBuilder(SalesAgentApplication.class)
                 .web(cli ? WebApplicationType.NONE : WebApplicationType.SERVLET)
-                .properties("sales.cli=" + cli)
-                .run(args);
+                .properties("sales.cli=" + cli);
+        // The CLI prints its own trace; log lines on the console would mix into the answers.
+        if (cli) app.properties("logging.threshold.console=off");
+        var context = app.run(args);
         // The chat ends when the CLI runner returns; HTTP client threads shouldn't keep the JVM alive.
         if (cli) System.exit(SpringApplication.exit(context));
     }

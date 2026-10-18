@@ -11,6 +11,9 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -36,6 +39,7 @@ import tools.jackson.databind.json.JsonMapper;
 @RequestMapping("/api")
 public class ApiController {
 
+    private static final Logger log = LoggerFactory.getLogger(ApiController.class);
     private static final MediaType NDJSON = MediaType.parseMediaType("application/x-ndjson");
 
     public record Info(String provider, String model, String rfqMode, @Nullable String fetchedAt,
@@ -113,16 +117,23 @@ public class ApiController {
         List<Message> history = sessions.computeIfAbsent(sessionId, id -> agent.newHistory());
 
         StreamingResponseBody body = out -> {
-            send(out, Map.of("type", "session", "sessionId", sessionId));
-            synchronized (history) { // one message at a time per conversation
-                int mark = history.size();
-                try {
-                    String text = agent.ask(history, question, e -> send(out, e));
-                    send(out, Map.of("type", "answer", "text", text));
-                } catch (RuntimeException e) {
-                    history.subList(mark, history.size()).clear(); // drop the failed turn
-                    send(out, Map.of("type", "error", "message", String.valueOf(e.getMessage())));
+            // Runs on another thread, so the session tag for the log lines is set here.
+            MDC.put("session", sessionId.substring(0, 8));
+            try {
+                send(out, Map.of("type", "session", "sessionId", sessionId));
+                synchronized (history) { // one message at a time per conversation
+                    int mark = history.size();
+                    try {
+                        String text = agent.ask(history, question, e -> send(out, e));
+                        send(out, Map.of("type", "answer", "text", text));
+                    } catch (RuntimeException e) {
+                        log.error("Question failed: {}", e.getMessage(), e);
+                        history.subList(mark, history.size()).clear(); // drop the failed turn
+                        send(out, Map.of("type", "error", "message", String.valueOf(e.getMessage())));
+                    }
                 }
+            } finally {
+                MDC.remove("session");
             }
         };
         return ResponseEntity.ok().contentType(NDJSON).header("Cache-Control", "no-cache").body(body);

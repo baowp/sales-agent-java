@@ -44,7 +44,7 @@ Run it from this folder: `.env` and `rfqs/` are resolved from the working direct
 In Spring AI 2.x, `ChatModel.call()` makes exactly one request and returns the model's tool calls without running them. (The 1.x `internalToolExecutionEnabled(false)` option no longer exists; the automatic loop now lives in `ChatClient`'s `ToolCallingAdvisor`, which this project doesn't use.) So `SalesAgent.ask()` runs the loop itself:
 
 ```java
-for (int step = 0; step < maxSteps; step++) {
+for (int step = 1; step <= maxSteps; step++) {
     Prompt prompt = new Prompt(List.copyOf(history), options);
     ChatResponse response = callModel(prompt, events);                // 1. one LLM round trip
     if (!response.hasToolCalls()) return answer;                       // 2. done
@@ -59,7 +59,26 @@ Because the loop is ours, it can:
 - stream each tool call and failure to the UI as it happens,
 - stop after `MAX_STEPS` and force a final answer,
 - retry 429/5xx/timeouts with visible "retrying" notices (the SDK's own retries are off),
-- answer an invented tool name with an error the model can recover from. `executeToolCalls` would throw instead.
+- answer an invented tool name with an error the model can recover from. `executeToolCalls` would throw instead,
+- log every step: the question, each model call (time, tokens), each tool call with its arguments, each tool result, and the final answer.
+
+### Logs
+
+The step log goes to the console (web mode) and to `logs/sales-agent.log` (both modes; the CLI writes only to the file so it doesn't mix into the answers). Web lines carry the first 8 characters of the session id:
+
+```
+[2c997f95] SalesAgent : Question: What is the MOQ for soccer socks?
+[2c997f95] SalesAgent : Step 1/12: calling qwen3.7-flash-2026-07-15 with 2 messages
+[2c997f95] SalesAgent : Step 1: model replied in 5408 ms (tokens in=1890 out=119)
+[2c997f95] SalesAgent : Step 1: tool call list_products({"category": "Sport"})
+[2c997f95] SalesAgent : Step 1: 1 tool call(s) finished in 15 ms
+[2c997f95] SalesAgent : Step 1: tool result list_products (350 chars): [{"slug":"soccer-socks",...
+[2c997f95] SalesAgent : Step 2/12: calling qwen3.7-flash-2026-07-15 with 4 messages
+[2c997f95] SalesAgent : Step 2: model replied in 2242 ms (tokens in=2129 out=131)
+[2c997f95] SalesAgent : Step 2: final answer after 7680 ms: The minimum order quantity (MOQ) for soccer socks is 100 pairs...
+```
+
+Tool results and answers are cut to 300 characters. For full tool results, use `--logging.level.com.sockspal.agent=debug`.
 
 ## Where things are
 

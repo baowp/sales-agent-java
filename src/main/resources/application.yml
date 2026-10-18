@@ -21,6 +21,14 @@ server:
 logging:
   level:
     root: warn
+    com.sockspal.agent: info   # one line per agent step; debug also logs full tool results
+  file:
+    name: logs/sales-agent.log # the same lines, kept on disk (the CLI writes only here)
+  include-application-name: false
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%thread] [%X{session:--}] %logger{20} : %msg%n"
+    file:    "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] [%X{session:--}] %logger{36} : %msg%n"
+    correlation: "[%X{session:--}] "  # web session id, so concurrent chats can be told apart
 
 # Which LLM to use. Any value can be overridden from .env, an environment variable,
 # or the command line (--llm.provider=groq).
