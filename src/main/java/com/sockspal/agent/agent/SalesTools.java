@@ -8,20 +8,25 @@ import java.util.List;
 import java.util.Locale;
 
 import org.jspecify.annotations.Nullable;
+import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.ai.tool.execution.ToolCallResultConverter;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
+import com.sockspal.agent.config.MemoryProperties;
+import com.sockspal.agent.memory.ChatStore;
+import com.sockspal.agent.memory.CustomerHistory;
 import com.sockspal.agent.sockspal.Catalog;
 import com.sockspal.agent.sockspal.RfqService;
 import com.sockspal.agent.sockspal.RfqService.RfqRequest;
 
 /**
- * The five tools the model can ask for. Spring AI turns each {@code @Tool} method into a tool definition
+ * The six tools the model can ask for. Spring AI turns each {@code @Tool} method into a tool definition
  * (name, description, JSON schema from the parameters) and, when the model asks, parses the arguments and
- * calls the method. Return values go back to the model as JSON.
+ * calls the method. Return values go back to the model as JSON. A {@link ToolContext} parameter is filled in
+ * by the loop ({@link ChatContext}) and is not part of the schema.
  */
 @Component
 public class SalesTools {
@@ -46,10 +51,14 @@ public class SalesTools {
 
     private final Catalog catalog;
     private final RfqService rfqs;
+    private final ChatStore chats;
+    private final int recallConversations;
 
-    public SalesTools(Catalog catalog, RfqService rfqs) {
+    public SalesTools(Catalog catalog, RfqService rfqs, ChatStore chats, MemoryProperties memory) {
         this.catalog = catalog;
         this.rfqs = rfqs;
+        this.chats = chats;
+        this.recallConversations = memory.recallConversations();
     }
 
     @Tool(name = "list_products", description = "List all SocksPal products with category, retail price, "
@@ -111,5 +120,17 @@ public class SalesTools {
         }
         return rfqs.create(new RfqRequest(contactName, email, companyName, phone, countryCode, destination,
                 requestedIncoterm == null ? null : requestedIncoterm.name(), message, items));
+    }
+
+    @Tool(name = "get_customer_history", description = "This customer's earlier chats and RFQs from the same browser: "
+            + "what they asked, what was quoted, and the details they confirmed (company, contact, destination, "
+            + "Incoterm, products). Use it when they refer to an earlier order or quote, or say \"same as last time\".")
+    public Object getCustomerHistory(ToolContext toolContext) {
+        ChatContext chat = ChatContext.from(toolContext);
+        if (chat.visitorId() == null || chat.conversationId() == null) {
+            return "No history: this chat isn't linked to a returning customer.";
+        }
+        var history = CustomerHistory.load(chats, chat.visitorId(), chat.conversationId(), recallConversations);
+        return history.isEmpty() ? "No earlier chats or RFQs for this customer." : history;
     }
 }

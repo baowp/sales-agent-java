@@ -38,7 +38,9 @@ class SalesToolsTest {
                 .collect(Collectors.toMap(d -> d.name(), d -> JSON.readTree(d.inputSchema())));
         schemas.forEach((name, schema) -> System.out.println(name + " " + schema));
 
-        assertThat(schemas).containsOnlyKeys("list_products", "get_product", "calculate_quote", "get_policy", "create_rfq");
+        assertThat(schemas).containsOnlyKeys("list_products", "get_product", "calculate_quote", "get_policy", "create_rfq",
+                "get_customer_history");
+        assertThat(schemas.get("get_customer_history").path("properties").isEmpty()).isTrue(); // ToolContext is not an argument
         assertThat(required(schemas.get("calculate_quote"))).containsExactlyInAnyOrder("product", "quantityPairs");
         assertThat(required(schemas.get("list_products"))).isEmpty();
         assertThat(schemas.get("get_policy").at("/properties/topic/enum").toString())
@@ -102,7 +104,8 @@ class SalesToolsTest {
                 return reply;
             }
         };
-        var tools = new SalesTools(Fixtures.catalog(), new RfqService(Fixtures.catalog(), client, rfqDir, true));
+        var tools = new SalesTools(Fixtures.catalog(), new RfqService(Fixtures.catalog(), client, rfqDir, true),
+                Fixtures.chatStore(), Fixtures.memory());
         var item = new RfqRequest.Item("soccer-socks", 1000, null, "Black", null, null);
 
         @SuppressWarnings("unchecked")
@@ -122,7 +125,8 @@ class SalesToolsTest {
 
     @Test
     void submitModeWithoutClientIsNotReportedAsSent() {
-        var tools = new SalesTools(Fixtures.catalog(), new RfqService(Fixtures.catalog(), null, rfqDir, true));
+        var tools = new SalesTools(Fixtures.catalog(), new RfqService(Fixtures.catalog(), null, rfqDir, true),
+                Fixtures.chatStore(), Fixtures.memory());
         var item = new RfqRequest.Item("soccer-socks", 1000, null, null, null, null);
 
         @SuppressWarnings("unchecked")

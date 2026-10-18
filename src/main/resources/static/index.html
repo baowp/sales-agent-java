@@ -59,6 +59,21 @@
   #productList .note:hover { background: none; }
   #productList .note.err { color: var(--danger); font-style: normal; }
 
+  .tabs { display: flex; gap: 4px; padding: 10px 10px 0; border-bottom: 1px solid var(--border); }
+  .tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; padding: 6px 10px; color: var(--muted); background: none; }
+  .tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+  .panel { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+  .panel[hidden] { display: none; }
+  #chatList { list-style: none; margin: 0; padding: 8px 6px 12px; overflow: auto; }
+  #chatList li { padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13.5px; }
+  #chatList li:hover { background: var(--accent-soft); }
+  #chatList li.active { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+  #chatList li strong { display: block; font-weight: 500; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #chatList li small { display: block; color: var(--muted); font-size: 12px; margin-top: 1px; }
+  #chatList .group { cursor: default; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: 10px 10px 4px; }
+  #chatList .group:hover, #chatList .note:hover { background: none; }
+  #chatList .note { color: var(--muted); cursor: default; font-style: italic; }
+
   main { display: grid; grid-template-rows: 1fr auto; min-height: 0; min-width: 0; }
   #messages { overflow-y: auto; padding: 24px 16px; }
   .inner { max-width: 760px; margin: 0 auto; }
@@ -88,6 +103,7 @@
   .error { background: var(--danger-soft); color: var(--danger); padding: 9px 12px; border-radius: 8px; font-size: 14px; }
   .empty { color: var(--muted); text-align: center; margin-top: 12vh; }
   .empty h2 { color: var(--text); font-weight: 600; font-size: 20px; margin: 0 0 6px; }
+  .empty .privacy { font-size: 12.5px; margin: 8px auto 0; max-width: 460px; }
   .suggest { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 16px; }
 
   form { padding: 12px 16px 16px; border-top: 1px solid var(--border); background: var(--bg); }
@@ -114,7 +130,7 @@
 </head>
 <body>
 <header>
-  <button id="toggleCatalog" type="button">Products</button>
+  <button id="toggleCatalog" type="button">Menu</button>
   <h1>SocksPal Sales Agent <small style="font-weight:400;color:var(--muted)">Java · Spring AI</small></h1>
   <span class="chip" id="model">loading…</span>
   <span class="chip" id="rfqMode"></span>
@@ -124,9 +140,18 @@
 
 <div class="layout">
   <aside id="catalog">
-    <div class="head"><span>Live catalog</span><button id="reload" type="button" title="Fetch stock and prices again">Refresh</button></div>
-    <div class="meta" id="meta"></div>
-    <ul id="productList"></ul>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="tabChats" aria-selected="true" aria-controls="chatsPanel">Chats</button>
+      <button type="button" role="tab" id="tabProducts" aria-selected="false" aria-controls="productsPanel">Products</button>
+    </div>
+    <div class="panel" id="chatsPanel" role="tabpanel">
+      <ul id="chatList"></ul>
+    </div>
+    <div class="panel" id="productsPanel" role="tabpanel" hidden>
+      <div class="head"><span>Live catalog</span><button id="reload" type="button" title="Fetch stock and prices again">Refresh</button></div>
+      <div class="meta" id="meta"></div>
+      <ul id="productList"></ul>
+    </div>
   </aside>
 
   <main>
@@ -143,7 +168,7 @@
 <script>
 const $ = (id) => document.getElementById(id);
 const thread = $('thread'), input = $('input'), sendBtn = $('send');
-let sessionId = null, busy = false;
+let sessionId = null, busy = false, sendSeq = 0;
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -215,6 +240,7 @@ function showEmpty() {
   ];
   thread.innerHTML = `<div class="empty" id="emptyState"><h2>Talk to the SocksPal sales agent</h2>
     Prices and stock come live from sockspal.com. Quote requests are handed to the sales team.
+    <p class="privacy">Chats are saved so the agent can pick up where you left off on this browser, and the SocksPal sales team can read them.</p>
     <div class="suggest">${examples.map((q) => `<button type="button" data-q="${esc(q)}">${esc(q)}</button>`).join('')}</div></div>`;
 }
 
@@ -231,6 +257,7 @@ const describe = (e) => {
 async function send(q) {
   if (busy || !q.trim()) return;
   busy = true; sendBtn.disabled = true;
+  const mine = ++sendSeq;
   addMessage('user', esc(q));
   const bubble = addMessage('assistant', '<div class="steps"><div class="thinking">Thinking</div></div>');
   const steps = bubble.querySelector('.steps');
@@ -253,14 +280,19 @@ async function send(q) {
       while ((nl = buf.indexOf('\n')) >= 0) {
         const e = JSON.parse(buf.slice(0, nl));
         buf = buf.slice(nl + 1);
-        if (e.type === 'session') sessionId = e.sessionId;
+        if (e.type === 'session') { sessionId = e.sessionId; markActive(); }
+        else if (e.type === 'title') loadChats();
         else if (e.type === 'tool') step(`<div>${describe(e)}</div>`);
         else if (e.type === 'tool_error') step(`<div class="fail">${esc(e.name)} failed: ${esc(e.message)}</div>`);
         else if (e.type === 'rfq') { step(`<div class="rfq">RFQ ${esc(e.id)} · ${esc(e.status.replace(/_/g, ' '))}</div>`); loadInfo(); }
         else if (e.type === 'retry') step(e.status === 'timeout'
           ? '<div class="retry">Model did not respond in time, retrying</div>'
           : `<div class="retry">Rate limited (${e.status}), retrying in ${e.seconds}s</div>`);
-        else if (e.type === 'answer') { status.remove(); bubble.insertAdjacentHTML('beforeend', render(e.text)); }
+        else if (e.type === 'answer') {
+          status.remove(); bubble.insertAdjacentHTML('beforeend', render(e.text));
+          busy = false; sendBtn.disabled = false; // the stream may stay open a moment to name a new chat
+          loadChats();
+        }
         else if (e.type === 'error') { status.remove(); bubble.insertAdjacentHTML('beforeend', `<div class="error">${esc(e.message)}</div>`); }
         $('messages').scrollTop = $('messages').scrollHeight;
       }
@@ -270,7 +302,7 @@ async function send(q) {
     bubble.insertAdjacentHTML('beforeend', `<div class="error">${esc(err.message)}</div>`);
   } finally {
     if (!steps.children.length) steps.remove();
-    busy = false; sendBtn.disabled = false; input.focus();
+    if (mine === sendSeq) { busy = false; sendBtn.disabled = false; input.focus(); }
   }
 }
 
@@ -291,6 +323,71 @@ function renderInfo(info) {
 
 const loadInfo = () => fetch('/api/info').then((r) => r.json()).then(renderInfo);
 
+// Saved chats of this browser (linked by an HttpOnly cookie), newest first, grouped by day.
+function dayLabel(iso) {
+  const d = new Date(iso), today = new Date();
+  const days = Math.round((new Date(today.toDateString()) - new Date(d.toDateString())) / 86400000);
+  return days === 0 ? 'Today' : days === 1 ? 'Yesterday' : days < 7 ? 'This week' : d.toLocaleDateString([], { month: 'long', year: 'numeric' });
+}
+
+async function loadChats() {
+  let chats = [];
+  try { chats = await (await fetch('/api/conversations')).json(); } catch { /* keep the list as it was */ return; }
+  let group = null;
+  $('chatList').innerHTML = chats.map((c) => {
+    const label = dayLabel(c.updatedAt);
+    const head = label !== group ? `<li class="group">${esc(label)}</li>` : '';
+    group = label;
+    return `${head}<li data-conv="${esc(c.id)}" title="${esc(c.title)}">
+      <strong>${esc(c.title)}</strong>
+      <small>${new Date(c.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${c.messages} message${c.messages === 1 ? '' : 's'}</small></li>`;
+  }).join('') || '<li class="note">No saved chats yet. They appear here after the first answer.</li>';
+  markActive();
+}
+
+function markActive() {
+  document.querySelectorAll('#chatList li[data-conv]').forEach((li) => li.classList.toggle('active', li.dataset.conv === sessionId));
+}
+
+async function openChat(id) {
+  if (busy || id === sessionId) { $('catalog').classList.remove('open'); return; }
+  try {
+    const res = await fetch(`/api/conversations/${encodeURIComponent(id)}`);
+    if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+    const chat = await res.json();
+    sessionId = chat.id; // the next message continues this chat
+    thread.innerHTML = '';
+    for (const t of chat.turns) {
+      addMessage('user', esc(t.question));
+      addMessage('assistant', render(t.answer));
+    }
+    if (chat.rfqs.length) {
+      addMessage('assistant', `<div class="steps">${chat.rfqs.map((r) => `<div class="rfq">RFQ ${esc(r.id)} · ${esc(r.status.replace(/_/g, ' '))}</div>`).join('')}</div>`);
+    }
+    markActive();
+    $('catalog').classList.remove('open');
+    input.focus();
+  } catch (err) {
+    loadChats();
+    addMessage('assistant', `<div class="error">${esc(err.message)}</div>`);
+  }
+}
+
+function showTab(name) {
+  const chats = name === 'chats';
+  $('tabChats').setAttribute('aria-selected', chats);
+  $('tabProducts').setAttribute('aria-selected', !chats);
+  $('chatsPanel').hidden = !chats;
+  $('productsPanel').hidden = chats;
+  try { localStorage.setItem('sidebarTab', name); } catch {}
+}
+$('tabChats').onclick = () => showTab('chats');
+$('tabProducts').onclick = () => showTab('products');
+$('chatList').addEventListener('click', (ev) => {
+  const li = ev.target.closest('li[data-conv]');
+  if (li) openChat(li.dataset.conv);
+});
+
 document.addEventListener('click', (ev) => {
   const q = ev.target.closest('[data-q]');
   if (q) { $('catalog').classList.remove('open'); send(q.dataset.q); }
@@ -307,11 +404,14 @@ input.addEventListener('keydown', (ev) => {
 });
 input.addEventListener('input', () => { input.style.height = ''; input.style.height = input.scrollHeight + 'px'; });
 $('toggleCatalog').onclick = () => $('catalog').classList.toggle('open');
-$('newChat').onclick = async () => {
+$('newChat').onclick = () => {
   if (busy) return;
-  if (sessionId) await fetch('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId }) });
-  sessionId = null;
+  const old = sessionId;
+  sessionId = null; // at once, so a message typed right away starts the new chat
+  markActive();
   showEmpty();
+  // Frees the server's in-memory copy; the saved chat stays in the list and can be reopened.
+  if (old) fetch('/api/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: old }) });
 };
 $('reload').onclick = async () => {
   $('reload').disabled = true;
@@ -320,6 +420,8 @@ $('reload').onclick = async () => {
 };
 
 loadInfo();
+loadChats();
+try { if (localStorage.getItem('sidebarTab') === 'products') showTab('products'); } catch {}
 showEmpty();
 </script>
 </body>

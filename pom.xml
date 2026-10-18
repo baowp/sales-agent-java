@@ -48,6 +48,22 @@
             <artifactId>spring-ai-openai</artifactId>
         </dependency>
 
+        <!-- Saved chats and RFQs (customer recall, sales-team search): an H2 database file in data/ -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- The /h2-console page (spring.h2.console.*). Since Boot 4 it is a separate module. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-h2console</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

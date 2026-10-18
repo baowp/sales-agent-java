@@ -16,9 +16,17 @@ public record LlmProperties(
         @Nullable String baseUrl,
         @Nullable String apiKey,
         double temperature,
+        @Nullable String embeddingModel,
         Map<String, Preset> presets) {
 
-    public record Preset(@Nullable String baseUrl, @Nullable String model, @Nullable String apiKey) {}
+    public record Preset(@Nullable String baseUrl, @Nullable String model, @Nullable String apiKey,
+                         @Nullable String embeddingModel) {}
+
+    /** The embedding model for the sales-team search, or "" when neither the override nor the preset sets one. */
+    public String resolveEmbeddingModel() {
+        Preset preset = presets.get(provider == null ? "" : provider.trim().toLowerCase());
+        return firstSet(embeddingModel, preset == null ? null : preset.embeddingModel());
+    }
 
     /** Picks the preset and applies the overrides. Fails at startup with a clear message if something is missing. */
     public LlmProvider resolve() {

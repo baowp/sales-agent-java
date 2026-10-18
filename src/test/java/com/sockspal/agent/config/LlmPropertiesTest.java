@@ -41,6 +41,13 @@ class LlmPropertiesTest {
     }
 
     @Test
+    void embeddingModelComesFromThePresetAndCanBeOverriddenOrMissing() throws IOException {
+        assertThat(llm(Map.of()).resolveEmbeddingModel()).isEqualTo("text-embedding-v4");
+        assertThat(llm(Map.of("LLM_EMBEDDING_MODEL", "text-embedding-v3")).resolveEmbeddingModel()).isEqualTo("text-embedding-v3");
+        assertThat(llm(Map.of("LLM_PROVIDER", "groq")).resolveEmbeddingModel()).isEmpty(); // keyword search only
+    }
+
+    @Test
     void dotEnvCanSwitchProviderAndOverrideModel() throws IOException {
         LlmProvider p = llm(Map.of("LLM_PROVIDER", "groq", "GROQ_API_KEY", "g-key", "LLM_MODEL", "llama-4")).resolve();
 

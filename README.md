@@ -15,8 +15,10 @@ All settings live in [`application.yml`](src/main/resources/application.yml), bo
 
 | Section | Record | What it holds |
 |---|---|---|
-| `llm.*` | `config/LlmProperties` | Provider (default `bailian`), the nine presets (base URL, model), overrides, temperature |
+| `llm.*` | `config/LlmProperties` | Provider (default `bailian`), the nine presets (base URL, model, embedding model), overrides, temperature |
 | `sales.*` | `config/AgentProperties` | Step limit, timeouts, SocksPal API URL, catalog cache, RFQ mode and folder |
+| `memory.*` | `config/MemoryProperties` | Sales search token, how many earlier chats the agent can recall |
+| `spring.datasource.*` | (Spring Boot) | The H2 database file for saved chats, `data/chats.mv.db` |
 
 **API keys are not in `application.yml`**, because it's committed to git and packed into the jar. Each preset references its key by name (`api-key: ${DASHSCOPE_API_KEY:}`), and the value comes from `.env` (gitignored) on your machine, or from a real environment variable or secrets manager on a server.
 
@@ -94,8 +96,10 @@ Tool results and answers are cut to 300 characters. For full tool results, use `
 | `agent.js` | `cli/ChatCli.java` | Terminal chat |
 | `public/index.html` | `src/main/resources/static/index.html` | Same page; reads camelCase fields |
 | `knowledge/*.md` | `src/main/resources/knowledge/*.md` | Policy summaries |
+| (Java only) | `memory/ChatStore.java`, `ChatSearch.java`, `TurnRecorder.java`, `CustomerHistory.java`, `LlmChatTitler.java`, `schema.sql` | Saved chats, titles, customer recall, sales search |
+| (Java only) | `web/SalesController.java`, `static/sales.html` | Sales-team search page |
 
-How a tool name reaches code: `AiConfig` registers `ToolCallbacks.from(salesTools)` in the chat model's default options, so every request lists the five tools. When the model replies `calculate_quote(...)`, `ToolCallingManager` finds the callback with that name, parses the JSON arguments into the method's parameters, and calls `SalesTools.calculateQuote()`.
+How a tool name reaches code: `AiConfig` registers `ToolCallbacks.from(salesTools)` in the chat model's default options, so every request lists the six tools. When the model replies `calculate_quote(...)`, `ToolCallingManager` finds the callback with that name, parses the JSON arguments into the method's parameters, and calls `SalesTools.calculateQuote()`.
 
 ## Differences from the Node.js version
 
@@ -104,14 +108,28 @@ How a tool name reaches code: `AiConfig` registers `ToolCallbacks.from(salesTool
 - **Policy text returns as plain markdown** via a custom `ToolCallResultConverter`. The default converter would JSON-quote it.
 - **Startup takes 10–15 s** (Spring context, the OpenAI Java SDK and its Kotlin runtime). The server pays this once; the CLI pays it on every run. The first run after a build can be much slower while antivirus scans the 90 MB jar.
 
+## Saved chats: customer recall and sales search
+
+Every answered web message is saved in an H2 database file, `data/chats.mv.db` (gitignored, created on first start; `schema.sql` creates the tables). Each browser gets a random `sp_visitor` cookie (HttpOnly, one year), and its chats are linked to it. The CLI doesn't save anything.
+
+**Chat list.** The side panel's "Chats" tab lists this browser's saved chats, newest first, grouped by day. After a chat's first answer, the model names it in 2-6 words, in the customer's language ("500 black soccer socks to LA"). That's one short extra call, sent on the stream after the answer so it never delays it. If the call fails, the chat is named after its first question. Clicking a chat shows it again, and the next message continues it. If the server has restarted since, the chat is rebuilt from its saved questions and answers (the last 20).
+
+**Returning customers.** When a browser that has chatted before starts a new chat, the system prompt gets one line ("This customer has used this chat before: 2 earlier conversations, 1 RFQ..."). The agent can then call `get_customer_history`, which returns that browser's RFQs (the details the customer confirmed) and its last 3 conversations, shortened. The visitor id reaches the tool through Spring AI's `ToolContext`, never through the model, so the model can't ask for someone else's history. A new device starts fresh. That's the price of not having logins.
+
+**Sales-team search.** Set `SALES_SEARCH_TOKEN` in `.env` and open `http://localhost:3002/sales.html`. Each saved turn ("Customer: ... Agent: ...") is embedded in the background with the provider's embedding model (`text-embedding-v4` on Bailian; see `embedding-model` in the presets), and a search ranks turns by cosine similarity, so "football socks for a US club" finds "soccer socks to LA". Without an embedding model (Groq, OpenRouter, NVIDIA, Ollama, or when the call fails) it falls back to keyword matching. Vectors are compared in memory, which is fine up to tens of thousands of turns; beyond that, move to pgvector. Changing the embedding model re-embeds everything on the next search.
+
+The customer page says chats are saved and that the sales team can read them. Saved chats contain names, emails and companies: decide how long to keep `data/` and who gets the search token.
+
 ## Tests
 
-`mvn test` runs 23 tests without any network or API key:
-- `LlmPropertiesTest`: binds the real `application.yml` with test key values: defaults, overrides, the custom provider, and the startup error messages.
+`mvn test` runs 33 tests without any network or API key:
+- `LlmPropertiesTest`: binds the real `application.yml` with test key values: defaults, overrides, the custom provider, the embedding model, and the startup error messages.
 - `CatalogTest`: tier pricing, MOQ, price breaks, colour stock, product matching, HTML attribute tables, API-down error. Uses `src/test/resources/fixtures/wholesale-products.json`, a snapshot of the live catalog, so live prices can differ.
 - `SalesToolsTest`: the generated tool schemas, plain-text policies, RFQ confirmation, checks and saved payload, and the submit-mode result (SocksPal's RFQ number, never reported as sent when it wasn't).
 - `SalesAgentLoopTest`: the real loop, `ToolCallingManager` and tools driven by a scripted model. Covers tool results fed back, an invented tool name, a failing tool, and the step limit.
-- `ApiControllerTest`: `/api/info` and the `/api/ask` NDJSON stream.
+- `ApiControllerTest`: `/api/info`, the `/api/ask` NDJSON stream, the visitor cookie, recall for the same browser only, session ids that don't cross browsers, the titled chat list, and reopening a saved chat after a restart.
+- `ChatMemoryTest`: what a returning customer's history contains (and doesn't), RFQ capture, semantic ranking with a fake embedding model, re-embedding after a model change, and the keyword fallback.
+- `SalesControllerTest`: the sales API is off without a token, refuses a wrong one, and shows shortened visitor ids.
 
 ## RFQ modes
 

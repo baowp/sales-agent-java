@@ -12,6 +12,7 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -79,19 +80,30 @@ public class SalesAgent {
     }
 
     public List<Message> newHistory() {
-        return new ArrayList<>(List.of(new SystemMessage(SystemPrompt.text(LocalDate.now()))));
+        return newHistory(null);
+    }
+
+    /** {@code customerNote} tells the model about a returning customer (see SystemPrompt). */
+    public List<Message> newHistory(@Nullable String customerNote) {
+        return new ArrayList<>(List.of(new SystemMessage(SystemPrompt.text(LocalDate.now(), customerNote))));
+    }
+
+    public String ask(List<Message> history, String question, Consumer<AgentEvent> events) {
+        return ask(history, question, ChatContext.NONE, events);
     }
 
     /**
      * Runs one customer message through the loop. Mutates {@code history} (system prompt + earlier turns)
-     * and reports progress through {@code events}.
+     * and reports progress through {@code events}. {@code chat} reaches the tools, not the model.
      */
-    public String ask(List<Message> history, String question, Consumer<AgentEvent> events) {
+    public String ask(List<Message> history, String question, ChatContext chat, Consumer<AgentEvent> events) {
         long started = System.nanoTime();
         log.info("Question: {}", preview(question));
         history.add(new UserMessage(question));
-        // Model name, temperature and the five tool definitions (set up in AiConfig).
-        ChatOptions options = chatModel.getDefaultOptions();
+        // Model name, temperature and the tool definitions (set up in AiConfig), plus who is chatting.
+        ChatOptions options = ((ToolCallingChatOptions) chatModel.getDefaultOptions()).mutate()
+                .toolContext(chat.toMap())
+                .build();
 
         for (int step = 1; step <= maxSteps; step++) {
             // 1. One round trip: the whole conversation plus the tool list.

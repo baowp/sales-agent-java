@@ -36,7 +36,7 @@ public class SalesAgentLoopTest {
     /** Replies from a script and records every prompt it receives. */
     public static final class ScriptedModel implements ChatModel {
         final Deque<AssistantMessage> script = new ArrayDeque<>();
-        final List<Prompt> prompts = new ArrayList<>();
+        public final List<Prompt> prompts = new ArrayList<>();
         final ChatOptions options;
 
         public ScriptedModel(SalesTools tools) {

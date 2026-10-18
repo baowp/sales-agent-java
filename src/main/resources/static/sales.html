@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SocksPal Chat Search</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1f2328; --muted: #6b7280; --border: #e5e7eb;
+    --accent: #2563eb; --accent-soft: #e8efff; --user: #1f2328; --user-text: #ffffff;
+    --danger: #b42318; --danger-soft: #fdecea; --ok: #067647; --ok-soft: #e6f4ec; --code: #f1f3f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141518; --panel: #1c1d21; --text: #e6e6e6; --muted: #9aa0a6; --border: #2c2e33;
+      --accent: #6b9bff; --accent-soft: #23304d; --user: #34363c; --user-text: #f2f2f2;
+      --danger: #ff8a80; --danger-soft: #3a1f1d; --ok: #6fd3a0; --ok-soft: #173326; --code: #25272c;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: grid; grid-template-rows: auto 1fr; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; white-space: nowrap; }
+  header .spacer { flex: 1; }
+  .chip {
+    font-size: 12px; color: var(--muted); border: 1px solid var(--border);
+    border-radius: 999px; padding: 2px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  button, input {
+    font: inherit; font-size: 14px; color: var(--text); background: var(--panel);
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px 12px;
+  }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  [hidden] { display: none !important; }
+
+  .gate { max-width: 380px; margin: 14vh auto 0; padding: 0 16px; }
+  .gate h2 { font-size: 20px; margin: 0 0 6px; }
+  .gate p { color: var(--muted); margin: 0 0 16px; font-size: 14px; }
+  .gate form { display: flex; gap: 8px; }
+  .gate input { flex: 1; min-width: 0; }
+  .error { background: var(--danger-soft); color: var(--danger); padding: 8px 12px; border-radius: 8px; font-size: 14px; margin-top: 12px; }
+  .note { background: var(--accent-soft); padding: 8px 12px; border-radius: 8px; font-size: 13px; margin: 0 0 12px; }
+
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); min-height: 0; }
+  .pane { overflow-y: auto; padding: 16px; min-width: 0; }
+  .pane + .pane { border-left: 1px solid var(--border); background: var(--panel); }
+  .search { display: flex; gap: 8px; margin-bottom: 12px; }
+  .search input { flex: 1; min-width: 0; }
+  .meta { font-size: 12.5px; color: var(--muted); margin: 0 0 8px; }
+
+  .hit {
+    display: block; width: 100%; text-align: left; padding: 10px 12px; margin: 0 0 8px;
+    background: var(--panel); border-radius: 10px; font-size: 14px;
+  }
+  .hit.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  .hit .top { display: flex; gap: 8px; align-items: center; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .hit .q { font-weight: 600; overflow-wrap: anywhere; }
+  .hit .a { color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+  .score { margin-left: auto; font-variant-numeric: tabular-nums; }
+  .bar { width: 40px; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); }
+  .tag { font-size: 11.5px; color: var(--muted); background: var(--code); border-radius: 4px; padding: 0 6px; }
+  .empty { color: var(--muted); text-align: center; margin-top: 10vh; font-size: 14px; }
+
+  .title { font-size: 17px; font-weight: 600; margin: 0 0 2px; }
+  .rfq { display: inline-block; color: var(--ok); background: var(--ok-soft); border-radius: 6px; padding: 2px 8px; font-size: 13px; margin: 0 6px 6px 0; }
+  .turn { margin: 0 0 16px; }
+  .turn time { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .bubble { padding: 8px 12px; border-radius: 12px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+  .bubble.customer { background: var(--user); color: var(--user-text); margin: 0 0 6px auto; max-width: 85%; width: fit-content; }
+  .bubble.agent { background: var(--bg); border: 1px solid var(--border); }
+  .turn.match .bubble.agent { border-color: var(--accent); }
+  .tools { margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
+
+  @media (max-width: 800px) {
+    .layout { grid-template-columns: 1fr; }
+    .pane + .pane { border-left: none; border-top: 1px solid var(--border); }
+    header .chip { max-width: 35vw; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Chat search</h1>
+  <span class="chip" id="mode" hidden></span>
+  <span class="spacer"></span>
+  <button id="signOut" type="button" hidden>Sign out</button>
+</header>
+
+<section class="gate" id="gate">
+  <h2>Sales team only</h2>
+  <p>Search saved customer chats. Enter the <code>SALES_SEARCH_TOKEN</code> from this server's <code>.env</code>.</p>
+  <form id="gateForm">
+    <input id="token" type="password" autocomplete="off" placeholder="Search token" aria-label="Search token">
+    <button class="primary" type="submit">Open</button>
+  </form>
+  <div class="error" id="gateError" hidden></div>
+</section>
+
+<div class="layout" id="app" hidden>
+  <section class="pane">
+    <form class="search" id="searchForm">
+      <input id="q" type="search" placeholder="e.g. grip socks for a studio, freight to Germany" aria-label="Search chats">
+      <button class="primary" type="submit">Search</button>
+    </form>
+    <div id="results"><div class="empty">Search by meaning: what buyers asked about, in any wording.</div></div>
+  </section>
+  <section class="pane" id="transcript"><div class="empty">Pick a result to read the whole conversation.</div></section>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const when = (iso) => new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+const store = {
+  get() { try { return sessionStorage.getItem('salesToken') || ''; } catch { return ''; } },
+  set(v) { try { v ? sessionStorage.setItem('salesToken', v) : sessionStorage.removeItem('salesToken'); } catch {} },
+};
+let token = store.get();
+
+async function api(path) {
+  const res = await fetch(`/api/sales/${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(body.error || res.statusText), { status: res.status });
+  return body;
+}
+
+async function open() {
+  try {
+    const s = await api('status');
+    $('mode').textContent = s.mode === 'semantic' ? `Semantic · ${s.model}` : 'Keyword search';
+    $('mode').title = s.mode === 'semantic' ? 'Ranked by embedding similarity' : 'No embedding model configured: exact word matches';
+    $('mode').hidden = false; $('signOut').hidden = false;
+    $('gate').hidden = true; $('app').hidden = false;
+    $('q').focus();
+  } catch (err) {
+    store.set(''); token = '';
+    $('gateError').textContent = err.message; $('gateError').hidden = false;
+  }
+}
+
+$('gateForm').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  token = $('token').value.trim();
+  store.set(token);
+  $('gateError').hidden = true;
+  open();
+});
+
+$('signOut').onclick = () => { store.set(''); location.reload(); };
+
+$('searchForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const q = $('q').value.trim();
+  if (!q) return;
+  $('results').innerHTML = '<div class="meta">Searching…</div>';
+  try {
+    const r = await api(`search?q=${encodeURIComponent(q)}&limit=20`);
+    const note = r.note ? `<div class="note">${esc(r.note)}</div>` : '';
+    if (!r.hits.length) { $('results').innerHTML = `${note}<div class="empty">No matching chats.</div>`; return; }
+    $('results').innerHTML = `${note}<div class="meta">${r.hits.length} result${r.hits.length > 1 ? 's' : ''} · ${r.mode === 'semantic' ? 'most similar first' : 'newest first'}</div>`
+      + r.hits.map((h) => `<button type="button" class="hit" data-conv="${esc(h.conversationId)}" data-turn="${h.turnId}">
+          <div class="top"><span>${esc(when(h.at))}</span><span>visitor ${esc(h.visitor)}</span>
+            ${h.score == null ? '' : `<span class="score">${Math.round(h.score * 100)}%</span><span class="bar"><i style="width:${Math.max(0, Math.min(100, h.score * 100))}%"></i></span>`}</div>
+          <div class="q">${esc(h.question)}</div>
+          <div class="a">${esc(h.answer)}</div>
+        </button>`).join('');
+  } catch (err) {
+    if (err.status === 401) { store.set(''); location.reload(); return; }
+    $('results').innerHTML = `<div class="error">${esc(err.message)}</div>`;
+  }
+});
+
+$('results').addEventListener('click', async (ev) => {
+  const hit = ev.target.closest('.hit');
+  if (!hit) return;
+  document.querySelectorAll('.hit.active').forEach((el) => el.classList.remove('active'));
+  hit.classList.add('active');
+  const pane = $('transcript');
+  pane.innerHTML = '<div class="meta">Loading…</div>';
+  try {
+    const c = await api(`conversations/${encodeURIComponent(hit.dataset.conv)}`);
+    pane.innerHTML = `${c.title ? `<h2 class="title">${esc(c.title)}</h2>` : ""}<div class="meta">Visitor ${esc(c.visitor)} · started ${esc(when(c.startedAt))} · ${c.turns.length} message${c.turns.length === 1 ? '' : 's'}</div>
+      ${c.rfqs.map((r) => `<span class="rfq">RFQ ${esc(r.id)} · ${esc(r.status.replace(/_/g, ' '))}</span>`).join('')}
+      ${c.turns.map((t) => `<div class="turn" data-at="${esc(t.at)}">
+          <time>${esc(when(t.at))}</time>
+          <div class="bubble customer">${esc(t.question)}</div>
+          <div class="bubble agent">${esc(t.answer)}</div>
+          ${t.tools.length ? `<div class="tools">${t.tools.map((n) => `<span class="tag">${esc(n)}</span>`).join('')}</div>` : ''}
+        </div>`).join('')}`;
+    const q = hit.querySelector('.q').textContent;
+    const match = [...pane.querySelectorAll('.turn')].find((el) => el.querySelector('.customer').textContent === q);
+    if (match) { match.classList.add('match'); match.scrollIntoView({ block: 'center' }); }
+    if (window.matchMedia('(max-width: 800px)').matches) pane.scrollIntoView();
+  } catch (err) {
+    pane.innerHTML = `<div class="error">${esc(err.message)}</div>`;
+  }
+});
+
+if (token) open(); else $('token').focus();
+</script>
+</body>
+</html>
