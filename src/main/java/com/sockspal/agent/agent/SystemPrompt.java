@@ -32,8 +32,8 @@ final class SystemPrompt {
 
             RFQ (handoff to a human):
             - Offer an RFQ when the customer wants a formal quote, freight, custom logo/packaging, samples, or anything the tools can't answer.
-            - Collect: contact name, email, 2-letter country code, destination city/port, preferred Incoterm if known, and per item the product, quantity in pairs, sizes, colours, logo and packaging needs. Company name and phone are optional.
+            - Collect: contact name, email, 2-letter country code, destination city/port, preferred Incoterm if known, and per item the product, quantity in pairs, sizes, colours, logo and packaging needs. Company name is required (SocksPal rejects RFQs without one); phone is optional.
             - Before calling create_rfq, show the customer a short summary and ask them to confirm. Only call it with customerConfirmed=true after they say yes.
-            - After it succeeds, give the RFQ id and say a salesperson will reply by email.""".formatted(today);
+            - After create_rfq returns, report its status truthfully and give its id as the RFQ number (only that one id). Say it was submitted and a salesperson will reply by email ONLY if status is "submitted_to_sockspal". For any other status, say it was not sent to SocksPal and follow the tool's nextStep.""".formatted(today);
     }
 }

@@ -20,6 +20,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonPropertyDescription;
 import com.sockspal.agent.config.AgentProperties;
 
+import tools.jackson.databind.JsonNode;
+
 /**
  * Builds the same payload as the site's /request-quote form. Saves it to rfqs/; with RFQ_MODE=submit it is
  * also sent to SocksPal, which creates a real RFQ.
@@ -95,6 +97,7 @@ public class RfqService {
                 orEmpty(in.requestedIncoterm()), orEmpty(in.message()), true, items);
 
         List<String> missing = new ArrayList<>();
+        if (payload.companyName().isBlank()) missing.add("company_name");
         if (payload.contactName().isBlank()) missing.add("contact_name");
         if (payload.email().isBlank()) missing.add("email");
         if (payload.countryCode().isBlank()) missing.add("country_code");
@@ -125,18 +128,31 @@ public class RfqService {
         save(id, record);
 
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("id", id);
-        if (submitError != null) {
-            result.put("status", "saved_locally_submit_failed");
-            result.put("error", submitError);
-            result.put("nextStep", "Tell the customer the request was saved and a salesperson will follow up, "
-                    + "or they can use https://www.sockspal.com/request-quote.");
-        } else if (submit) {
+        if (record.get("response") instanceof JsonNode response) {
+            // Only what the customer needs: SocksPal's RFQ number and what it recorded. The full reply
+            // (which echoes the payload) stays in the saved file.
+            result.put("id", response.hasNonNull("rfq_number") ? response.get("rfq_number").asString() : id);
             result.put("status", "submitted_to_sockspal");
-            result.put("response", record.get("response"));
+            if (response.hasNonNull("status")) result.put("salesStatus", response.get("status").asString());
+            result.put("replyTo", payload.email());
+            result.put("received", response.path("items").valueStream()
+                    .map(i -> i.path("quantity_pairs").asInt() + " pairs " + i.path("product_name").asString())
+                    .toList());
+            result.put("nextStep", "Sent. Give the customer the id above as their RFQ number, exactly as written. Say "
+                    + "the SocksPal sales team has received it and will reply by email to replyTo. Do not promise "
+                    + "a reply time or a final price.");
+        } else if (submit) {
+            result.put("id", id);
+            result.put("status", "saved_locally_submit_failed");
+            result.put("error", submitError != null ? submitError : "No SocksPal API client configured");
+            result.put("nextStep", "NOT sent: SocksPal did not receive it. Tell the customer it could not be sent "
+                    + "and ask them to use https://www.sockspal.com/request-quote or email sockspal@163.com.");
         } else {
-            result.put("status", "draft_saved_for_sales_team");
-            result.put("nextStep", "A salesperson reviews the draft and sends the formal quotation by email.");
+            result.put("id", id);
+            result.put("status", "draft_saved_not_sent");
+            result.put("nextStep", "NOT sent: draft mode only saves it on this server. Do not say it was submitted. "
+                    + "Tell the customer it is saved as a draft, and that for a guaranteed reply they can use "
+                    + "https://www.sockspal.com/request-quote or email sockspal@163.com.");
         }
         return result;
     }

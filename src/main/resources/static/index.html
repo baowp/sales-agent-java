@@ -224,7 +224,7 @@ const describe = (e) => {
   if (e.name === 'get_product') return `Looked up ${esc(a.product || '')}`;
   if (e.name === 'calculate_quote') return `Priced ${esc(a.quantityPairs ?? "?")} pairs of ${esc(a.product || '')}${a.color ? ` (${esc(a.color)})` : ''}`;
   if (e.name === 'get_policy') return `Read policy: ${esc((a.topic || '').replace(/_/g, ' ').toLowerCase())}`;
-  if (e.name === 'create_rfq') return 'Sending quote request…';
+  if (e.name === 'create_rfq') return 'Creating quote request…';
   return esc(e.name);
 };
 

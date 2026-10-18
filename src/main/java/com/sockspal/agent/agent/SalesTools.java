@@ -98,7 +98,7 @@ public class SalesTools {
             @ToolParam(description = "true only if the customer confirmed the summary") boolean customerConfirmed,
             @ToolParam(description = "Customer's name") String contactName,
             @ToolParam(description = "Customer's email") String email,
-            @ToolParam(required = false) @Nullable String companyName,
+            @ToolParam(description = "Customer's company or organisation name (SocksPal requires it)") String companyName,
             @ToolParam(required = false) @Nullable String phone,
             @ToolParam(description = "2-letter ISO country code of the destination, e.g. US") String countryCode,
             @ToolParam(description = "Destination city, port or address", required = false) @Nullable String destination,

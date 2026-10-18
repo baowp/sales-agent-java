@@ -106,13 +106,13 @@ How a tool name reaches code: `AiConfig` registers `ToolCallbacks.from(salesTool
 
 ## Tests
 
-`mvn test` runs 21 tests without any network or API key:
+`mvn test` runs 23 tests without any network or API key:
 - `LlmPropertiesTest`: binds the real `application.yml` with test key values: defaults, overrides, the custom provider, and the startup error messages.
 - `CatalogTest`: tier pricing, MOQ, price breaks, colour stock, product matching, HTML attribute tables, API-down error. Uses `src/test/resources/fixtures/wholesale-products.json`, a snapshot of the live catalog, so live prices can differ.
-- `SalesToolsTest`: the generated tool schemas, plain-text policies, and RFQ confirmation, checks and saved payload.
+- `SalesToolsTest`: the generated tool schemas, plain-text policies, RFQ confirmation, checks and saved payload, and the submit-mode result (SocksPal's RFQ number, never reported as sent when it wasn't).
 - `SalesAgentLoopTest`: the real loop, `ToolCallingManager` and tools driven by a scripted model. Covers tool results fed back, an invented tool name, a failing tool, and the step limit.
 - `ApiControllerTest`: `/api/info` and the `/api/ask` NDJSON stream.
 
 ## RFQ modes
 
-The same as the Node.js version: `RFQ_MODE=draft` (default) saves to `rfqs/`; `RFQ_MODE=submit` also POSTs to SocksPal and creates a real RFQ. Submit mode hasn't been run against the live API. `rfqs/` holds customer names and emails.
+The same as the Node.js version: `RFQ_MODE=draft` (default) saves to `rfqs/`; `RFQ_MODE=submit` also POSTs to SocksPal and creates a real RFQ. SocksPal requires a company name. In submit mode the customer gets SocksPal's `rfq_number` (e.g. `RFQ-20261018-7B8A8159`); the timestamp id is only the local file name. Drafts are never sent, and the agent is told to say so. `rfqs/` holds customer names and emails.
